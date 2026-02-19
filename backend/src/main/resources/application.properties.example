@@ -1,0 +1,15 @@
+# Server Port
+server.port=5000
+
+# Google Sheets Service Account Credentials (JSON key file path)
+sheets.credentials.path=your-google-service-account-key.json
+
+# Google Spreadsheet ID (from the spreadsheet URL)
+spreadsheet.id=YOUR_SPREADSHEET_ID_HERE
+
+# Gemini API Key
+gemini.api.key=YOUR_GEMINI_API_KEY_HERE
+
+# MongoDB Atlas
+spring.data.mongodb.uri=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
+spring.data.mongodb.database=stress_checker_db

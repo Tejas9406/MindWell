@@ -1,0 +1,38 @@
+# Python / Virtual Environment
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment Variables & Secrets
+.env
+.env.*
+
+# Sensitive config files
+backend/src/main/resources/application.properties
+
+# Google Service Account Credentials (JSON keys)
+*.json
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/tsconfig.json
+!package.json
+!package-lock.json
+
+# Java Build Output
+backend/target/
+*.class
+*.jar
+
+# IDE / Editor
+.vscode/
+.idea/
+*.iml
+
+# Node
+node_modules/
+
+# OS
+Thumbs.db
+.DS_Store
