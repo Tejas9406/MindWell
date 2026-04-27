@@ -6,6 +6,7 @@ import com.stresschecker.repository.ChatHistoryRepository;
 import com.stresschecker.service.GeminiChatService;
 import com.stresschecker.service.SheetsSyncService;
 import com.stresschecker.service.FreesoundService;
+import com.stresschecker.service.WellnessEngineService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,24 +21,26 @@ public class ApiController {
     private final GeminiChatService geminiChatService;
     private final UserDataRepository userDataRepository;
     private final ChatHistoryRepository chatHistoryRepository;
+    private final WellnessEngineService wellnessEngineService;
 
     private static final int MAX_HISTORY_TURNS = 20;
 
     public ApiController(SheetsSyncService sheetsSyncService, GeminiChatService geminiChatService,
             UserDataRepository userDataRepository, FreesoundService freesoundService,
-            ChatHistoryRepository chatHistoryRepository) {
+            ChatHistoryRepository chatHistoryRepository, WellnessEngineService wellnessEngineService) {
         this.sheetsSyncService = sheetsSyncService;
         this.geminiChatService = geminiChatService;
         this.userDataRepository = userDataRepository;
         this.freesoundService = freesoundService;
         this.chatHistoryRepository = chatHistoryRepository;
+        this.wellnessEngineService = wellnessEngineService;
     }
 
     @GetMapping("/")
     public Map<String, String> home() {
         return Map.of(
                 "status", "healthy",
-                "message", "Student Stress Level Checker API is running (MongoDB Atlas)");
+                "message", "Digital wellness API is running");
     }
 
     @GetMapping("/favicon.ico")
@@ -60,10 +63,112 @@ public class ApiController {
         }
     }
 
+    @GetMapping("/api/assessment/profiles")
+    public List<Map<String, String>> getAssessmentProfiles() {
+        return wellnessEngineService.getSupportedProfiles();
+    }
+
+    @GetMapping("/api/assessment/template")
+    public ResponseEntity<?> getAssessmentTemplate(@RequestParam(required = false) String profileType) {
+        return ResponseEntity.ok(wellnessEngineService.getAssessmentTemplate(profileType));
+    }
+
+    @PostMapping("/api/assessment/submit")
+    public ResponseEntity<?> submitAssessment(@RequestBody AssessmentSubmitRequest request) {
+        String email = request.getEmail();
+        if (email == null || email.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
+        }
+
+        try {
+            Optional<UserData> existing = userDataRepository.findById(email.toLowerCase().trim());
+            UserData user = wellnessEngineService.createOrUpdateAssessment(request, existing.orElse(null));
+            userDataRepository.save(user);
+            return ResponseEntity.ok(buildUserResponse(user));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to submit assessment: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/api/weekly-plan/task")
+    public ResponseEntity<?> updateWeeklyTask(@RequestBody WeeklyTaskUpdateRequest request) {
+        if (request.getEmail() == null || request.getEmail().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
+        }
+        if (request.getTaskId() == null || request.getTaskId().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Task id is required"));
+        }
+
+        try {
+            Optional<UserData> userOpt = userDataRepository.findById(request.getEmail().toLowerCase().trim());
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
+            }
+
+            UserData user = wellnessEngineService.updateWeeklyTaskState(
+                    userOpt.get(),
+                    request.getTaskId(),
+                    request.isCompleted());
+            userDataRepository.save(user);
+            return ResponseEntity.ok(buildUserResponse(user));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to update weekly task: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/api/weekly-plan/regenerate")
+    public ResponseEntity<?> regenerateWeeklyPlan(@RequestBody WeeklyPlanRefreshRequest request) {
+        if (request.getEmail() == null || request.getEmail().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
+        }
+
+        try {
+            Optional<UserData> userOpt = userDataRepository.findById(request.getEmail().toLowerCase().trim());
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
+            }
+
+            UserData user = wellnessEngineService.regenerateWeeklyPlan(userOpt.get());
+            userDataRepository.save(user);
+            return ResponseEntity.ok(buildUserResponse(user));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to regenerate weekly plan: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/api/weekly-plan/check-in")
+    public ResponseEntity<?> addWeeklyCheckIn(@RequestBody WeeklyCheckInRequest request) {
+        if (request.getEmail() == null || request.getEmail().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
+        }
+
+        try {
+            Optional<UserData> userOpt = userDataRepository.findById(request.getEmail().toLowerCase().trim());
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
+            }
+
+            UserData user = wellnessEngineService.addWeeklyCheckIn(
+                    userOpt.get(),
+                    request.getMood(),
+                    request.getEnergy(),
+                    request.getNote());
+            userDataRepository.save(user);
+            return ResponseEntity.ok(buildUserResponse(user));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to save weekly check-in: " + e.getMessage()));
+        }
+    }
+
     @PostMapping("/api/chat")
     public ResponseEntity<?> chat(@RequestBody ChatRequest request) {
         String userMessage = request.getMessage();
-        String userEmail = request.getEmail();
+        String userEmailRaw = request.getEmail();
+        String userEmail = (userEmailRaw != null && !userEmailRaw.isBlank()) ? userEmailRaw.toLowerCase().trim() : null;
 
         if (userMessage == null || userMessage.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Message is required"));
@@ -77,6 +182,10 @@ public class ApiController {
                     UserData user = userOpt.get();
                     stressContext.put("level", user.getStressLevel());
                     stressContext.put("score", user.getTotalScore());
+                    stressContext.put("profileType", user.getProfileType());
+                    stressContext.put("weeklyFocus", user.getWeeklyFocus());
+                    stressContext.put("topTriggers", user.getTopTriggers());
+                    stressContext.put("supportStyle", user.getSupportStyle());
                 }
             } catch (Exception e) {
                 System.err.println("Error fetching user context from MongoDB: " + e.getMessage());
@@ -90,7 +199,7 @@ public class ApiController {
                 Optional<ChatHistory> histOpt = chatHistoryRepository.findById(userEmail);
                 if (histOpt.isPresent()) {
                     chatHistory = histOpt.get();
-                    history = chatHistory.getMessages();
+                    history = new ArrayList<>(chatHistory.getMessages());
                 } else {
                     chatHistory = new ChatHistory(userEmail);
                 }
@@ -141,28 +250,13 @@ public class ApiController {
     }
 
     @GetMapping("/api/articles")
-    public List<ArticleItem> getArticles() {
-        return List.of(
-                new ArticleItem(1, "Understanding Stress Management",
-                        "Learn the basics of stress management and how to identify your triggers.",
-                        "https://www.apa.org/topics/stress/tips",
-                        "https://images.unsplash.com/photo-1517021897933-0e0319cfbc28?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-                        "APA"),
-                new ArticleItem(2, "The Benefits of Mindfulness",
-                        "Discover how mindfulness can reduce anxiety and improve your overall well-being.",
-                        "https://www.mayoclinic.org/healthy-lifestyle/consumer-health/in-depth/mindfulness-exercises/art-20046356",
-                        "https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-                        "Mayo Clinic"),
-                new ArticleItem(3, "Simple Breathing Exercises",
-                        "Quick and effective breathing techniques to help you calm down instantly.",
-                        "https://www.health.harvard.edu/mind-and-mood/relaxation-techniques-breath-control-helps-quell-errant-stress-response",
-                        "https://images.unsplash.com/photo-1518241353330-0f7941c2d9b5?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-                        "Harvard Health"),
-                new ArticleItem(4, "Sleep and Mental Health",
-                        "Why good sleep is crucial for your mental health and tips to get better rest.",
-                        "https://www.sleepfoundation.org/mental-health",
-                        "https://images.unsplash.com/photo-1541781777621-3914296d36e7?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-                        "Sleep Foundation"));
+    public List<ArticleItem> getArticles(@RequestParam(required = false) String email,
+            @RequestParam(required = false) String profileType) {
+        UserData user = null;
+        if (email != null && !email.isBlank()) {
+            user = userDataRepository.findById(email.toLowerCase().trim()).orElse(null);
+        }
+        return wellnessEngineService.getRecommendedArticles(user, profileType);
     }
 
     @PostMapping("/api/insights")
@@ -206,15 +300,7 @@ public class ApiController {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(Map.of("error", "User not found. Please sync data first."));
             }
-            UserData user = userOpt.get();
-            Map<String, Object> response = new LinkedHashMap<>();
-            response.put("email", user.getEmail());
-            response.put("stress_level", user.getStressLevel());
-            response.put("total_score", user.getTotalScore());
-            response.put("color_code", user.getColorCode());
-            response.put("answers", user.getAnswers());
-            response.put("last_updated", user.getLastUpdated());
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(buildUserResponse(userOpt.get()));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", e.getMessage()));
@@ -240,5 +326,44 @@ public class ApiController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", e.getMessage()));
         }
+    }
+
+    private Map<String, Object> buildUserResponse(UserData user) {
+        wellnessEngineService.ensureWeeklyPlanState(user);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("email", user.getEmail());
+        response.put("profile_type", user.getProfileType());
+        response.put("support_style", user.getSupportStyle());
+        response.put("sleep_quality", user.getSleepQuality());
+        response.put("energy_level", user.getEnergyLevel());
+        response.put("available_minutes", user.getAvailableMinutes());
+        response.put("stress_level", user.getStressLevel());
+        response.put("total_score", user.getTotalScore());
+        response.put("color_code", user.getColorCode());
+        response.put("answers", user.getAnswers());
+        response.put("dimension_scores", user.getDimensionScores() != null ? user.getDimensionScores() : Map.of());
+        response.put("dimension_breakdown",
+                user.getDimensionBreakdown() != null ? user.getDimensionBreakdown() : List.of());
+        response.put("top_triggers", user.getTopTriggers() != null ? user.getTopTriggers() : List.of());
+        response.put("strengths", user.getStrengths() != null ? user.getStrengths() : List.of());
+        response.put("summary", user.getSummary());
+        response.put("weekly_focus", user.getWeeklyFocus());
+        response.put("wellness_signals", user.getWellnessSignals() != null ? user.getWellnessSignals() : Map.of());
+        response.put("weekly_challenges", wellnessEngineService.buildWeeklyChallengesWithProgress(user));
+        response.put("challenge_milestones",
+                user.getChallengeMilestones() != null ? user.getChallengeMilestones() : List.of());
+        response.put("rescue_plan", user.getRescuePlan() != null ? user.getRescuePlan() : List.of());
+        response.put("weekly_plan_progress",
+                user.getWeeklyPlanProgress() != null ? user.getWeeklyPlanProgress() : Map.of());
+        response.put("weekly_plan_meta",
+                user.getWeeklyPlanMeta() != null ? user.getWeeklyPlanMeta() : Map.of());
+        response.put("weekly_plan_summary", wellnessEngineService.buildWeeklyPlanSummary(user));
+        response.put("weekly_check_ins",
+                user.getWeeklyCheckIns() != null ? user.getWeeklyCheckIns() : List.of());
+        response.put("detailed_responses",
+                user.getDetailedResponses() != null ? user.getDetailedResponses() : List.of());
+        response.put("last_updated", user.getLastUpdated());
+        return response;
     }
 }

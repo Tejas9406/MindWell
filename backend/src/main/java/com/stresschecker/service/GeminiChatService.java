@@ -32,9 +32,12 @@ public class GeminiChatService {
         String level = (String) stressContext.getOrDefault("level", "Unknown");
         Object scoreObj = stressContext.get("score");
         int score = scoreObj != null ? ((Number) scoreObj).intValue() : 0;
+        String weeklyFocus = String.valueOf(stressContext.getOrDefault("weeklyFocus", ""));
+        String profileType = String.valueOf(stressContext.getOrDefault("profileType", "your current profile"));
 
         if (containsAny(msg, "hello", "hi", "hey", "greetings")) {
-            return "Hello there! I see your current stress level is " + level + ". How can I help you relax today?";
+            return "Hello there! I see your current stress level is " + level + " for your " + profileType
+                    + " profile. How can I support you today?";
         }
         if (containsAny(msg, "tip", "manage", "help", "advice", "what to do")) {
             if (level.toLowerCase().contains("high")) {
@@ -44,6 +47,13 @@ public class GeminiChatService {
             } else {
                 return "You're doing well! To maintain this, ensure you get 8 hours of sleep and stay hydrated.";
             }
+        }
+        if (containsAny(msg, "task", "plan", "weekly", "challenge")) {
+            if (!weeklyFocus.isBlank() && !"null".equalsIgnoreCase(weeklyFocus)) {
+                return "Your current weekly focus is: " + weeklyFocus
+                        + " Start with the lightest challenge first so progress feels safe and doable.";
+            }
+            return "Let's keep it small today: one calming action, one practical action, and one enjoyable action is a strong reset.";
         }
         if (containsAny(msg, "bad", "sad", "anxious", "worried", "stress", "tired", "exhausted")) {
             return "I hear you. It's okay to feel this way. Remember, this is just a temporary phase. Have you taken a break recently?";
@@ -81,6 +91,12 @@ public class GeminiChatService {
         String level = String.valueOf(stressContext.getOrDefault("level", "Unknown"));
         Object scoreObj = stressContext.get("score");
         int score = scoreObj != null ? ((Number) scoreObj).intValue() : 0;
+        String profileType = String.valueOf(stressContext.getOrDefault("profileType", "general"));
+        String weeklyFocus = String.valueOf(stressContext.getOrDefault("weeklyFocus", "Provide simple next steps."));
+        Object triggersObj = stressContext.get("topTriggers");
+        String topTriggers = triggersObj instanceof Collection<?>
+                ? String.join(", ", ((Collection<?>) triggersObj).stream().map(String::valueOf).toList())
+                : String.valueOf(triggersObj != null ? triggersObj : "");
 
         String systemText = String.format("""
                 Act as a compassionate, intelligent mental health coach.
@@ -88,12 +104,16 @@ public class GeminiChatService {
                 USER PROFILE:
                 - Current Stress Level: %s
                 - Stress Score: %d
+                - Profile Type: %s
+                - Weekly Focus: %s
+                - Top Triggers: %s
 
                 Guidelines:
                 1. Reply naturally to the user's latest message.
                 2. Use the profile data to personalize advice.
                 3. Keep it concise (max 3 sentences).
-                """, level, score);
+                4. Never present yourself as a doctor or diagnosis tool.
+                """, level, score, profileType, weeklyFocus, topTriggers);
 
         Map<String, Object> systemInstruction = Map.of(
                 "parts", List.of(Map.of("text", systemText)));
@@ -153,7 +173,7 @@ public class GeminiChatService {
 
     public List<Map<String, Object>> generateInsights(List<Map<String, Object>> detailedResponses) {
         if (apiKey == null || apiKey.isBlank()) {
-            return detailedResponses; // Return as is if no API key
+            return buildFallbackInsights(detailedResponses);
         }
 
         StringBuilder promptBuilder = new StringBuilder();
@@ -235,6 +255,33 @@ public class GeminiChatService {
                 e.printStackTrace();
             }
         }
-        return detailedResponses;
+        return buildFallbackInsights(detailedResponses);
+    }
+
+    private List<Map<String, Object>> buildFallbackInsights(List<Map<String, Object>> detailedResponses) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> response : detailedResponses) {
+            Map<String, Object> enriched = new HashMap<>(response);
+            int score = 0;
+            Object scoreObj = response.get("score");
+            if (scoreObj instanceof Number number) {
+                score = number.intValue();
+            }
+
+            String insight;
+            if (score >= 3) {
+                insight = "This looks like a strong strain signal. Keep your next step very small and consider real-world support if it stays intense.";
+            } else if (score == 2) {
+                insight = "This area is draining more energy than it should. Pair one calming action with one practical boundary this week.";
+            } else if (score == 1) {
+                insight = "There is some pressure here, but it still looks workable. A small reset can stop it from compounding.";
+            } else {
+                insight = "This answer looks relatively steady right now. Protect the routine that is helping you stay balanced here.";
+            }
+
+            enriched.put("insight", insight);
+            result.add(enriched);
+        }
+        return result;
     }
 }

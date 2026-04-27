@@ -1,13 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import ThreeBackground from '../components/ThreeBackground';
 import MusicTab from '../components/MusicTab';
 import ArticlesTab from '../components/ArticlesTab';
+import AssessmentTab from '../components/AssessmentTab';
+import DreamInterpreter from '../components/DreamInterpreter';
+import GoalChallengeTab from '../components/GoalChallengeTab';
+import PanicButton from '../components/PanicButton';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
-import { db, auth } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { auth } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { API_BASE_URL } from '../lib/api';
 
 ChartJS.register(
     CategoryScale,
@@ -33,7 +37,6 @@ const Dashboard = () => {
     const mainRef = useRef(null);
     const [showScrollTop, setShowScrollTop] = useState(false);
 
-    // Custom Smooth Scroll Helper
     const smoothScrollTo = (element, target, duration) => {
         const start = element.scrollTop;
         const change = target - start;
@@ -42,8 +45,6 @@ const Dashboard = () => {
         const animateScroll = (currentTime) => {
             const timeElapsed = currentTime - startTime;
             const progress = Math.min(timeElapsed / duration, 1);
-
-            // Easing function (easeInOutQuad)
             const ease = progress < 0.5
                 ? 2 * progress * progress
                 : 1 - Math.pow(-2 * progress + 2, 2) / 2;
@@ -58,11 +59,10 @@ const Dashboard = () => {
         requestAnimationFrame(animateScroll);
     };
 
-    const handleScroll = (e) => {
-        const { scrollTop, clientHeight } = e.target;
+    const handleScroll = (event) => {
+        const { scrollTop, clientHeight } = event.target;
 
         if (insightsRef.current) {
-            // Show button only after scrolling 50% of the viewport HEIGHT past the start of Insights
             const insightsTop = insightsRef.current.offsetTop;
             const threshold = insightsTop + (clientHeight * 0.5);
             setShowScrollTop(scrollTop > threshold);
@@ -73,68 +73,94 @@ const Dashboard = () => {
 
     const scrollToInsightsTop = () => {
         if (mainRef.current && insightsRef.current) {
-            const top = insightsRef.current.offsetTop - 40; // Subtract padding
-            // Use custom smooth scroll with 800ms duration for visible animation
+            const top = insightsRef.current.offsetTop - 40;
             smoothScrollTo(mainRef.current, top, 800);
         }
     };
 
     useEffect(() => {
-        const initDashboard = async (user) => {
-            // 1. Trigger Sync (Sheets -> Firestore) to get latest data
-            try {
-                await fetch('http://127.0.0.1:5000/api/sync-responses', { method: 'POST' });
-                console.log("✅ Sync triggered");
-            } catch (e) {
-                console.error("Sync failed", e);
-            }
-
-            // 2. Fetch User Data
-            if (user) {
-                setUserEmail(user.email);
-                await fetchUserData(user.email.toLowerCase());
-            } else {
-                setLoading(false);
-            }
-        };
-
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            await initDashboard(user);
+            if (!user) {
+                setLoading(false);
+                setUserData(null);
+                setUserEmail(null);
+                return;
+            }
+
+            const email = user.email?.toLowerCase() || '';
+            setUserEmail(email);
+            await fetchUserData(email);
         });
 
         return () => unsubscribe();
     }, []);
 
     const fetchUserData = async (email) => {
+        setLoading(true);
         try {
-            const docRef = doc(db, "users", email);
-            const docSnap = await getDoc(docRef);
-
-            if (docSnap.exists()) {
-                setUserData(docSnap.data());
-            } else {
-                // Document not found
+            const res = await fetch(`${API_BASE_URL}/api/user-data?email=${encodeURIComponent(email)}`);
+            if (res.status === 404) {
+                setUserData(null);
+                setActiveTab('overview');
+                setMessages([
+                    { id: 1, text: "Let's complete your first assessment so I can personalize everything for you.", sender: 'ai' }
+                ]);
+                return;
             }
+
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'Unable to load user data');
+            }
+
+            setUserData(data);
+            await fetchChatHistory(email, data);
         } catch (error) {
-            console.error("Error getting document:", error);
+            console.error('Error loading user data:', error);
+            setUserData(null);
         } finally {
             setLoading(false);
         }
     };
 
-    // Prepare Chart Data
+    const fetchChatHistory = async (email, data) => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/chat-history?email=${encodeURIComponent(email)}`);
+            const history = await res.json();
+
+            if (res.ok && Array.isArray(history.messages) && history.messages.length > 0) {
+                setMessages(history.messages.map((message, index) => ({
+                    id: `history-${index}`,
+                    text: message.text,
+                    sender: message.role === 'user' ? 'user' : 'ai',
+                })));
+            } else {
+                setMessages([
+                    {
+                        id: 1,
+                        text: `Hello! I'm your AI Mental Health Assistant. I can use your ${formatProfileType(data?.profile_type)} assessment context whenever you're ready.`,
+                        sender: 'ai',
+                    }
+                ]);
+            }
+        } catch (error) {
+            console.error('Error loading chat history:', error);
+        }
+    };
+
+    const maxScore = userData?.answers?.length ? userData.answers.length * 3 : 48;
     const stressData = {
-        labels: ['Survey Result', 'Max Potential', 'Previous'],
+        labels: ['Assessment Result', 'Max Potential', 'Recovery Space'],
         datasets: [
             {
                 label: 'Stress Score',
-                data: userData ? [userData.total_score, 48, 0] : [0, 0, 0],
+                data: userData ? [userData.total_score, maxScore, Math.max(maxScore - userData.total_score, 0)] : [0, 0, 0],
                 backgroundColor: [
                     userData?.color_code === 'green' ? 'rgba(74, 222, 128, 0.6)' :
                         userData?.color_code === 'yellow' ? 'rgba(250, 204, 21, 0.6)' :
                             'rgba(248, 113, 113, 0.6)',
                     'rgba(255, 255, 255, 0.1)',
-                    'rgba(255, 255, 255, 0.1)'
+                    'rgba(96, 165, 250, 0.25)'
                 ],
                 borderColor: 'rgba(255, 255, 255, 0.5)',
                 borderWidth: 1,
@@ -155,17 +181,34 @@ const Dashboard = () => {
         }
     };
 
-    const handleSendMessage = async (e) => {
-        e.preventDefault();
+    const handleAssessmentComplete = async (data) => {
+        setUserData(data);
+        setActiveTab('overview');
+        setInsightsData(null);
+        setMessages([
+            {
+                id: 1,
+                text: `Your first assessment is ready. I can now help using your ${formatProfileType(data?.profile_type)} context.`,
+                sender: 'ai',
+            }
+        ]);
+    };
+
+    const handleUserDataRefresh = (data) => {
+        setUserData(data);
+    };
+
+    const handleSendMessage = async (event) => {
+        event.preventDefault();
         if (!inputText.trim()) return;
 
         const newMessage = { id: Date.now(), text: inputText, sender: 'user' };
-        setMessages([...messages, newMessage]);
+        setMessages((prev) => [...prev, newMessage]);
         const currentInput = inputText;
         setInputText('');
 
         try {
-            const res = await fetch('http://127.0.0.1:5000/api/chat', {
+            const res = await fetch(`${API_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -180,7 +223,7 @@ const Dashboard = () => {
 
             setMessages(prev => [...prev, {
                 id: Date.now() + 1,
-                text: data.response || "I having trouble connecting right now.",
+                text: data.response || 'I am having trouble connecting right now.',
                 sender: 'ai'
             }]);
 
@@ -188,7 +231,7 @@ const Dashboard = () => {
             console.error(err);
             setMessages(prev => [...prev, {
                 id: Date.now() + 1,
-                text: "Error connecting to AI server. Please make sure the backend is running.",
+                text: 'Error connecting to AI server. Please make sure the backend is running.',
                 sender: 'ai'
             }]);
         }
@@ -198,7 +241,7 @@ const Dashboard = () => {
         if (!userData || !userEmail) return;
         setLoadingInsights(true);
         try {
-            const res = await fetch('http://127.0.0.1:5000/api/insights', {
+            const res = await fetch(`${API_BASE_URL}/api/insights`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: userEmail })
@@ -206,36 +249,79 @@ const Dashboard = () => {
             const data = await res.json();
             if (res.ok) {
                 setInsightsData(data);
-                // Scroll after render
                 setTimeout(() => {
-                    insightsRef.current?.scrollIntoView({ behavior: "smooth" });
+                    insightsRef.current?.scrollIntoView({ behavior: 'smooth' });
                 }, 100);
             } else {
-                console.error("Failed to fetch insights:", data.error);
-                alert("Could not load insights. Please try syncing data again.");
+                console.error('Failed to fetch insights:', data.error);
             }
         } catch (error) {
-            console.error("Error fetching insights:", error);
+            console.error('Error fetching insights:', error);
         } finally {
             setLoadingInsights(false);
         }
+    };
+
+    const handleVoiceInput = () => {
+        if (!('webkitSpeechRecognition' in window)) {
+            alert('Your browser does not support speech recognition. Try Google Chrome.');
+            return;
+        }
+        
+        const recognition = new window.webkitSpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        recognition.onstart = () => {
+            // Optional: Add visual feedback for recording
+            setInputText('Listening...');
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            setInputText(transcript);
+        };
+
+        recognition.onerror = (event) => {
+            console.error('Speech recognition error', event.error);
+            setInputText('');
+        };
+
+        recognition.start();
     };
 
     if (loading) {
         return <div className="min-h-screen flex items-center justify-center text-white"><ThreeBackground />Loading...</div>;
     }
 
-
+    if (!userData) {
+        return (
+            <div className="min-h-screen relative text-white font-sans overflow-hidden">
+                <ThreeBackground />
+                <main className="relative z-10 max-w-6xl mx-auto px-6 py-10">
+                    <AssessmentTab
+                        userEmail={userEmail}
+                        currentProfileType={null}
+                        onComplete={handleAssessmentComplete}
+                    />
+                </main>
+            </div>
+        );
+    }
 
     return (
         <div className="h-screen relative text-white font-sans overflow-hidden flex">
             <ThreeBackground />
+            <PanicButton />
 
-            {/* Sidebar */}
             <aside className="w-64 bg-white/5 backdrop-blur-lg border-r border-white/10 hidden md:flex flex-col p-6 z-10">
-                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500 mb-10">
+                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500 mb-3">
                     MindWell AI
                 </h1>
+                <p className="text-xs uppercase tracking-[0.24em] text-gray-400 mb-8">
+                    {formatProfileType(userData?.profile_type)}
+                </p>
                 <nav className="space-y-4">
                     <button onClick={() => setActiveTab('overview')} className={`w-full text-left px-4 py-3 rounded-xl transition-all ${activeTab === 'overview' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/30' : 'hover:bg-white/10 text-gray-400'}`}>
                         Overview
@@ -243,8 +329,14 @@ const Dashboard = () => {
                     <button onClick={() => setActiveTab('chat')} className={`w-full text-left px-4 py-3 rounded-xl transition-all ${activeTab === 'chat' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/30' : 'hover:bg-white/10 text-gray-400'}`}>
                         AI Assistant
                     </button>
+                    <button onClick={() => setActiveTab('dreams')} className={`w-full text-left px-4 py-3 rounded-xl transition-all ${activeTab === 'dreams' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/30' : 'hover:bg-white/10 text-gray-400'}`}>
+                        Dream Interpreter
+                    </button>
                     <button onClick={() => setActiveTab('music')} className={`w-full text-left px-4 py-3 rounded-xl transition-all ${activeTab === 'music' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/30' : 'hover:bg-white/10 text-gray-400'}`}>
                         Relaxation Music
+                    </button>
+                    <button onClick={() => setActiveTab('goal-challenge')} className={`w-full text-left px-4 py-3 rounded-xl transition-all ${activeTab === 'goal-challenge' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/30' : 'hover:bg-white/10 text-gray-400'}`}>
+                        Weekly Task
                     </button>
                     <button onClick={() => setActiveTab('articles')} className={`w-full text-left px-4 py-3 rounded-xl transition-all ${activeTab === 'articles' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/30' : 'hover:bg-white/10 text-gray-400'}`}>
                         Related Articles
@@ -252,8 +344,30 @@ const Dashboard = () => {
                 </nav>
             </aside>
 
-            {/* Main Content */}
             <main ref={mainRef} className="flex-1 p-8 z-10 overflow-y-auto scroll-smooth" onScroll={handleScroll}>
+                <div className="mb-6 flex gap-3 overflow-x-auto md:hidden">
+                    {[
+                        ['overview', 'Overview'],
+                        ['chat', 'AI Assistant'],
+                        ['dreams', 'Dream Interpreter'],
+                        ['music', 'Relaxation Music'],
+                        ['goal-challenge', 'Weekly Task'],
+                        ['articles', 'Related Articles'],
+                    ].map(([key, label]) => (
+                        <button
+                            key={key}
+                            type="button"
+                            onClick={() => setActiveTab(key)}
+                            className={`whitespace-nowrap rounded-full border px-4 py-2 text-sm font-medium transition-all ${activeTab === key
+                                ? 'border-purple-500/30 bg-purple-600/30 text-purple-200'
+                                : 'border-white/10 bg-white/5 text-gray-300'
+                                }`}
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
+
                 <motion.div
                     key={activeTab}
                     initial={{ opacity: 0, x: 20 }}
@@ -263,28 +377,45 @@ const Dashboard = () => {
                 >
                     {activeTab === 'overview' ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            {/* Stats Cards */}
                             <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-3xl shadow-xl">
                                 <h3 className="text-gray-400 mb-2">Current Stress Score</h3>
-                                {userData ? (
-                                    <>
-                                        <div className={`text-4xl font-bold ${userData.stress_level === 'Low Stress' ? 'text-green-400' :
-                                            userData.stress_level === 'Medium Stress' ? 'text-yellow-400' : 'text-red-400'
-                                            }`}>
-                                            {userData.stress_level} ({userData.total_score})
-                                        </div>
-                                        <p className="text-sm text-gray-500 mt-2">
-                                            Based on your latest survey responses.
-                                        </p>
-                                    </>
-                                ) : (
-                                    <div className="text-xl text-gray-400">
-                                        No Data Found. Please ensure your email matches the survey.
-                                    </div>
-                                )}
+                                <div className={`text-4xl font-bold ${userData.stress_level === 'Low Stress' ? 'text-green-400' :
+                                    userData.stress_level === 'Medium Stress' ? 'text-yellow-400' : 'text-red-400'
+                                    }`}>
+                                    {userData.stress_level} ({userData.total_score})
+                                </div>
+                                <p className="text-sm text-gray-500 mt-2">
+                                    Based on your initial assessment responses.
+                                </p>
                             </div>
 
-                            {/* Chart */}
+                            <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-3xl shadow-xl">
+                                <h3 className="text-gray-400 mb-2">Wellness Signals</h3>
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                                        <p className="text-xs uppercase tracking-[0.18em] text-gray-400">Mental Weather</p>
+                                        <p className="mt-2 text-lg font-semibold text-blue-200">
+                                            {userData.wellness_signals?.mental_weather || 'Balanced'}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                                        <p className="text-xs uppercase tracking-[0.18em] text-gray-400">Energy Band</p>
+                                        <p className="mt-2 text-lg font-semibold text-purple-200">
+                                            {userData.wellness_signals?.energy_band || userData.energy_level || 'Steady'}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                                        <p className="text-xs uppercase tracking-[0.18em] text-gray-400">Sleep Debt</p>
+                                        <p className="mt-2 text-lg font-semibold text-amber-200">
+                                            {userData.wellness_signals?.sleep_debt || userData.sleep_quality || 'Moderate'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <p className="text-sm text-gray-500 mt-3">
+                                    A quick status view from your initial assessment and current wellness profile.
+                                </p>
+                            </div>
+
                             <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-3xl shadow-xl col-span-1 md:col-span-2">
                                 <div className="flex justify-between items-center mb-4">
                                     <h3 className="text-xl font-semibold text-gray-200">Stress Analysis Chart</h3>
@@ -293,13 +424,64 @@ const Dashboard = () => {
                                         disabled={loadingInsights}
                                         className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white px-6 py-2 rounded-xl text-sm font-medium transition-all shadow-lg shadow-purple-500/20 disabled:opacity-50"
                                     >
-                                        {loadingInsights ? "Analyzing..." : "View Full Insights"}
+                                        {loadingInsights ? 'Analyzing...' : 'View Full Insights'}
                                     </button>
                                 </div>
                                 <Bar options={options} data={stressData} />
                             </div>
 
-                            {/* Detailed Insights Section */}
+                            <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-3xl shadow-xl col-span-1 md:col-span-2">
+                                <div className="flex flex-wrap gap-6">
+                                    <div className="flex-1 min-w-[220px]">
+                                        <h3 className="text-lg font-semibold text-purple-200 mb-4">Top Triggers</h3>
+                                        <div className="flex flex-wrap gap-3">
+                                            {(userData.top_triggers || []).map((trigger) => (
+                                                <span key={trigger} className="px-4 py-2 rounded-full bg-red-500/15 text-red-200 text-sm border border-red-400/20">
+                                                    {trigger}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="flex-1 min-w-[220px]">
+                                        <h3 className="text-lg font-semibold text-blue-200 mb-4">Protective Strengths</h3>
+                                        <div className="space-y-3">
+                                            {(userData.strengths || []).slice(0, 2).map((strength, idx) => (
+                                                <div key={idx} className="p-3 rounded-2xl bg-blue-500/10 border border-blue-400/20 text-sm text-blue-100">
+                                                    {strength}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {userData.dimension_breakdown?.length > 0 && (
+                                <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-3xl shadow-xl col-span-1 md:col-span-2">
+                                    <h3 className="text-xl font-semibold text-gray-200 mb-5">Focus Areas</h3>
+                                    <div className="grid grid-cols-1 gap-4">
+                                        {userData.dimension_breakdown.slice(0, 4).map((dimension) => (
+                                            <div key={dimension.key} className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                                                <div className="flex justify-between items-start gap-4 mb-3">
+                                                    <div>
+                                                        <h4 className="text-lg font-medium text-gray-100">{dimension.label}</h4>
+                                                        <p className="text-sm text-gray-400 mt-1">{dimension.insight}</p>
+                                                    </div>
+                                                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${dimension.score >= 70 ? 'bg-red-500/20 text-red-300' : dimension.score >= 45 ? 'bg-yellow-500/20 text-yellow-300' : 'bg-green-500/20 text-green-300'}`}>
+                                                        {dimension.score}
+                                                    </span>
+                                                </div>
+                                                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                                                    <div
+                                                        className={`h-full rounded-full ${dimension.score >= 70 ? 'bg-gradient-to-r from-red-500 to-orange-400' : dimension.score >= 45 ? 'bg-gradient-to-r from-yellow-500 to-amber-300' : 'bg-gradient-to-r from-green-400 to-emerald-300'}`}
+                                                        style={{ width: `${dimension.score}%` }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {insightsData && (
                                 <div ref={insightsRef} className="col-span-1 md:col-span-2 space-y-6 animate-fade-in-up">
                                     <h3 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-blue-500">
@@ -323,7 +505,7 @@ const Dashboard = () => {
                                                 {item.insight && (
                                                     <div className="mt-3 p-3 bg-purple-900/20 border border-purple-500/20 rounded-xl">
                                                         <p className="text-purple-200 text-sm">
-                                                            ✨ <b>AI Insight:</b> {item.insight}
+                                                            <b>AI Insight:</b> {item.insight}
                                                         </p>
                                                     </div>
                                                 )}
@@ -333,14 +515,16 @@ const Dashboard = () => {
                                 </div>
                             )}
                         </div>
+                    ) : activeTab === 'goal-challenge' ? (
+                        <GoalChallengeTab userData={userData} />
+                    ) : activeTab === 'dreams' ? (
+                        <DreamInterpreter userEmail={userEmail} />
                     ) : activeTab === 'chat' ? (
                         <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl h-[80vh] flex flex-col overflow-hidden">
-                            {/* Chat Header */}
                             <div className="p-4 border-b border-white/10 bg-white/5">
                                 <h3 className="font-semibold text-purple-300">Dr. Gemini (AI Support)</h3>
                             </div>
 
-                            {/* Messages */}
                             <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-700">
                                 {messages.map((msg) => (
                                     <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -351,8 +535,17 @@ const Dashboard = () => {
                                 ))}
                             </div>
 
-                            {/* Input */}
-                            <form onSubmit={handleSendMessage} className="p-4 border-t border-white/10 bg-white/5 flex gap-4">
+                            <form onSubmit={handleSendMessage} className="p-4 border-t border-white/10 bg-white/5 flex gap-4 items-center">
+                                <button
+                                    type="button"
+                                    onClick={handleVoiceInput}
+                                    title="Voice Input"
+                                    className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors flex-shrink-0"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                                    </svg>
+                                </button>
                                 <label htmlFor="chat-input" className="sr-only">Type your message</label>
                                 <input
                                     id="chat-input"
@@ -361,7 +554,7 @@ const Dashboard = () => {
                                     value={inputText}
                                     onChange={(e) => setInputText(e.target.value)}
                                     className="flex-1 bg-black/20 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-1 focus:ring-purple-500 text-white placeholder-gray-500"
-                                    placeholder="Type your message..."
+                                    placeholder="Type or speak your message..."
                                     autoComplete="off"
                                 />
                                 <button type="submit" className="bg-purple-600 hover:bg-purple-700 px-6 py-3 rounded-xl font-medium transition-colors">
@@ -377,12 +570,11 @@ const Dashboard = () => {
                     ) : (
                         <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl p-6 min-h-[80vh]">
                             <h2 className="text-2xl font-bold mb-6 text-purple-100">Helpful Articles</h2>
-                            <ArticlesTab />
+                            <ArticlesTab email={userEmail} profileType={userData?.profile_type} />
                         </div>
                     )}
                 </motion.div>
 
-                {/* Scroll to Top of Insights Button */}
                 {showScrollTop && activeTab === 'overview' && insightsData && (
                     <button
                         onClick={scrollToInsightsTop}
@@ -395,8 +587,19 @@ const Dashboard = () => {
                     </button>
                 )}
             </main>
-        </div >
+        </div>
     );
 };
+
+function formatProfileType(value) {
+    if (!value) {
+        return 'Wellness';
+    }
+
+    return value
+        .split('_')
+        .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
+        .join(' ');
+}
 
 export default Dashboard;

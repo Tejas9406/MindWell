@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
@@ -41,6 +42,11 @@ public class SheetsSyncService {
             if (!path.contains("/") && !path.contains("\\")) {
                 path = System.getProperty("user.dir") + "/" + path;
             }
+            File keyFile = new File(path);
+            if (!keyFile.exists()) {
+                System.out.println("ℹ️ Google Sheets sync disabled because credentials file was not found: " + path);
+                return;
+            }
             GoogleCredentials creds = GoogleCredentials.fromStream(new FileInputStream(path))
                     .createScoped(Collections.singleton(SheetsScopes.SPREADSHEETS_READONLY));
             sheetsService = new Sheets.Builder(
@@ -51,7 +57,7 @@ public class SheetsSyncService {
                     .build();
             System.out.println("✅ Google Sheets Service Initialized");
         } catch (IOException | GeneralSecurityException e) {
-            throw new RuntimeException("Failed to initialize Google Sheets: " + e.getMessage(), e);
+            System.out.println("ℹ️ Google Sheets sync disabled: " + e.getMessage());
         }
     }
 
@@ -97,6 +103,9 @@ public class SheetsSyncService {
     }
 
     public void syncData() throws IOException {
+        if (sheetsService == null) {
+            throw new IllegalStateException("Google Sheets sync is disabled. Use the native assessment flow instead.");
+        }
 
         System.out.println("📥 Fetching data from Sheet: " + spreadsheetId + "...");
 
@@ -188,6 +197,11 @@ public class SheetsSyncService {
             UserData userData = new UserData(
                     email, answersList, totalScore,
                     levelAndColor[0], levelAndColor[1], detailedResponses);
+            userData.setProfileType("student");
+            userData.setSupportStyle("Gentle Guide");
+            userData.setSleepQuality("Mixed");
+            userData.setEnergyLevel("Steady");
+            userData.setAvailableMinutes(15);
             batchToSave.add(userData);
             count++;
 

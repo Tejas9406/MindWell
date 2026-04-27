@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { API_BASE_URL } from '../lib/api';
 
 const MusicTab = ({ stressLevel }) => {
     const [musicList, setMusicList] = useState([]);
@@ -22,8 +23,7 @@ const MusicTab = ({ stressLevel }) => {
         setLoading(true);
         try {
             const query = new URLSearchParams(params).toString();
-            // Assuming the backend is running on port 5000
-            const res = await fetch(`http://127.0.0.1:5000/api/music?${query}`);
+            const res = await fetch(`${API_BASE_URL}/api/music?${query}`);
             if (!res.ok) throw new Error('Failed to fetch music');
             const data = await res.json();
             setMusicList(data);

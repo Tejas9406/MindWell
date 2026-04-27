@@ -34,7 +34,6 @@ const ThreeBackground = () => {
             <Canvas camera={{ position: [0, 0, 10], fov: 75 }} gl={{ antialias: false, powerPreference: "high-performance" }}>
                 <ambientLight intensity={0.5} />
                 <pointLight position={[10, 10, 10]} intensity={1} color="#ff00ff" />
-                {/* Reduced number of shapes to save resources */}
                 <FloatingShape position={[-3, 2, -5]} color="#ff0080" speed={2} rotationSpeed={0.2} />
                 <FloatingShape position={[4, -2, -2]} color="#00bfff" speed={3} rotationSpeed={0.3} />
             </Canvas>
