@@ -13,7 +13,7 @@ import java.util.*;
 @Service
 public class GeminiChatService {
 
-    private static final String GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+    private static final String GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
     private static final List<String> DEFAULT_RESPONSES = Arrays.asList(
             "I understand. Could you tell me more about that?",
             "I'm here to listen. What's on your mind?",
@@ -135,8 +135,8 @@ public class GeminiChatService {
         body.put("system_instruction", systemInstruction);
         body.put("contents", contents);
 
-        int maxRetries = 3;
-        int baseDelay = 2000;
+        int maxRetries = 2;
+        int baseDelay = 30000; // Gemini free tier suggests 27s retry delay
 
         for (int attempt = 0; attempt < maxRetries; attempt++) {
             try {
@@ -153,7 +153,9 @@ public class GeminiChatService {
                 }
                 throw new RuntimeException("No candidates returned. Response: " + response.getBody());
             } catch (HttpStatusCodeException e) {
+                System.err.println("[Gemini] HTTP error " + e.getStatusCode().value() + ": " + e.getResponseBodyAsString());
                 if (e.getStatusCode().value() == 429 && attempt < maxRetries - 1) {
+                    System.out.println("[Gemini] Rate limited. Waiting " + baseDelay + "ms...");
                     try {
                         Thread.sleep(baseDelay);
                     } catch (InterruptedException ie) {
@@ -164,6 +166,7 @@ public class GeminiChatService {
                 }
                 return getSmartLocalResponse(userMessage, stressContext);
             } catch (Exception e) {
+                System.err.println("[Gemini] Unknown error: " + e.getMessage());
                 e.printStackTrace();
                 return getSmartLocalResponse(userMessage, stressContext);
             }

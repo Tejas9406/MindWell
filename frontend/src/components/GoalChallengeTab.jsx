@@ -82,11 +82,45 @@ const defaultCategories = [
     }
 ];
 
+const generateDynamicCategories = (userData) => {
+    if (!userData) return defaultCategories;
+
+    const profile = userData.profile_type || 'student';
+    const isHighStress = userData.total_score >= 45;
+
+    return defaultCategories.map(cat => {
+        let newLabel = cat.label;
+        let newTasks = [...cat.tasks];
+
+        if (cat.id === 'career') {
+            newLabel = profile === 'student' ? 'ACADEMICS' : (profile === 'parent' ? 'PARENTING' : 'CAREER');
+            if (profile === 'student') {
+                newTasks[2].text = 'Research about interesting topics outside syllabus';
+                newTasks[4].text = 'Find an online course or webinar to attend';
+            }
+        }
+        
+        if (cat.id === 'health') {
+            if (isHighStress) {
+                newTasks[0].text = 'Take a slow, mindful 15-minute walk';
+                newTasks[1].text = 'Do gentle stretching for 10 minutes';
+            }
+        }
+        
+        if (cat.id === 'family') {
+            if (profile === 'professional') {
+                newTasks[1].text = 'Call a family member you haven\'t spoken to in a while';
+            }
+        }
+
+        return { ...cat, label: newLabel, tasks: newTasks };
+    });
+};
+
 const GoalChallengeTab = ({ userData }) => {
-    // In the future, we will overwrite `categories` with dynamic ones from `userData`.
-    // For now, we'll use the default categories to match the requested image UI.
-    const [categories, setCategories] = useState(defaultCategories);
+    const [categories, setCategories] = useState(() => generateDynamicCategories(userData));
     const [completedTasks, setCompletedTasks] = useState(new Set());
+    const [showCelebration, setShowCelebration] = useState(false);
 
     const toggleTask = (taskId) => {
         setCompletedTasks(prev => {
@@ -108,8 +142,38 @@ const GoalChallengeTab = ({ userData }) => {
 
     const categoriesMeetingGoal = categoryCompletions.filter(c => c.meetsGoal).length;
 
+    useEffect(() => {
+        if (categoriesMeetingGoal >= 6 && !showCelebration) {
+            setShowCelebration(true);
+            setTimeout(() => setShowCelebration(false), 5000); // hide after 5s
+        }
+    }, [categoriesMeetingGoal, showCelebration]);
+
     return (
-        <div className="space-y-8 animate-fade-in-up">
+        <div className="space-y-8 animate-fade-in-up relative">
+            {showCelebration && (
+                <motion.div 
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md pointer-events-none"
+                >
+                    <div className="absolute inset-0 bg-gradient-to-tr from-purple-600/40 via-transparent to-pink-600/40 animate-pulse" />
+                    <motion.div 
+                        initial={{ y: 50 }}
+                        animate={{ y: [0, -20, 0] }}
+                        transition={{ repeat: Infinity, duration: 2 }}
+                        className="text-center"
+                    >
+                        <div className="text-8xl md:text-9xl mb-6">🎉✨👑</div>
+                        <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-pink-400 to-purple-500 drop-shadow-[0_0_15px_rgba(236,72,153,0.8)]">
+                            YOU SLAYED IT!
+                        </h1>
+                        <p className="mt-4 text-2xl text-white font-medium drop-shadow-md">All categories complete. You are amazing!</p>
+                    </motion.div>
+                </motion.div>
+            )}
+
             <motion.section
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}

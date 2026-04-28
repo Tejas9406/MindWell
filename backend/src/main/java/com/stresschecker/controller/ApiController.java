@@ -8,8 +8,14 @@ import com.stresschecker.service.SheetsSyncService;
 import com.stresschecker.service.FreesoundService;
 import com.stresschecker.service.WellnessEngineService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
 
 import java.util.*;
 
@@ -227,6 +233,31 @@ public class ApiController {
         }
 
         return ResponseEntity.ok(new ChatResponse(response));
+    }
+
+
+
+    @GetMapping(value = "/api/dream-image", produces = MediaType.IMAGE_JPEG_VALUE)
+    public ResponseEntity<byte[]> generateDreamImage(@RequestParam String prompt) {
+        if (prompt == null || prompt.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        try {
+            String encodedPrompt = java.net.URLEncoder.encode(
+                "surreal cinematic dream visualization of " + prompt, java.nio.charset.StandardCharsets.UTF_8);
+            String url = "https://image.pollinations.ai/prompt/" + encodedPrompt + "?width=768&height=512&nologo=true&seed=" + System.currentTimeMillis();
+
+            RestTemplate restTemplate = new RestTemplate();
+            ResponseEntity<byte[]> response = restTemplate.getForEntity(url, byte[].class);
+
+            return ResponseEntity.ok()
+                    .contentType(MediaType.IMAGE_JPEG)
+                    .body(response.getBody());
+        } catch (Exception e) {
+            System.err.println("Error calling Pollinations.ai: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 
     @GetMapping("/api/music")

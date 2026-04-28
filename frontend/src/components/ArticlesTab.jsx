@@ -7,6 +7,28 @@ const ArticlesTab = ({ email, profileType }) => {
     const [loading, setLoading] = useState(true);
     const [viewMode, setViewMode] = useState('read'); // 'read' or 'video'
 
+    const getVideos = () => {
+        const profile = profileType ? profileType.toLowerCase() : 'student';
+        const isHighStress = articles.length > 0 && articles[0].title.includes('High');
+
+        const generalVideos = [
+            { id: "v1", title: "How to make stress your friend", url: "https://www.youtube.com/embed/RcGyVTAoXEU", source: "TED" },
+            { id: "v2", title: "10-Minute Guided Meditation", url: "https://www.youtube.com/embed/inpok4MKVLM", source: "Mindfulness" }
+        ];
+
+        const studentVideos = [
+            { id: "v3", title: "How to study efficiently", url: "https://www.youtube.com/embed/fC1yF6f1v9Y", source: "Academics" },
+            ...generalVideos
+        ];
+
+        const proVideos = [
+            { id: "v4", title: "Recognizing and Preventing Burnout", url: "https://www.youtube.com/embed/c2M8bU4yQGA", source: "Career" },
+            ...generalVideos
+        ];
+
+        return profile === 'student' ? studentVideos : proVideos;
+    };
+
     useEffect(() => {
         const params = new URLSearchParams();
         if (email) {
@@ -95,8 +117,32 @@ const ArticlesTab = ({ email, profileType }) => {
                     ))}
                 </div>
             ) : (
-                <div className="text-center text-gray-400 py-20 font-serif italic text-lg">
-                    "Video curation feature is coming soon. Please enjoy reading the stories for now."
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {getVideos().map((video, index) => (
+                        <motion.div
+                            key={video.id}
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ delay: index * 0.1, duration: 0.5 }}
+                            className="bg-white/5 backdrop-blur-lg rounded-[2rem] p-6 border border-white/10 shadow-2xl overflow-hidden"
+                        >
+                            <div className="mb-4 flex items-center justify-between">
+                                <span className="px-3 py-1 bg-red-500/20 text-red-300 rounded-full text-xs font-bold uppercase tracking-widest">
+                                    {video.source}
+                                </span>
+                                <h3 className="text-xl font-bold text-white truncate ml-3">{video.title}</h3>
+                            </div>
+                            <div className="relative pt-[56.25%] rounded-xl overflow-hidden bg-black/50">
+                                <iframe
+                                    className="absolute inset-0 w-full h-full border-0"
+                                    src={video.url}
+                                    title={video.title}
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                    allowFullScreen
+                                ></iframe>
+                            </div>
+                        </motion.div>
+                    ))}
                 </div>
             )}
         </div>

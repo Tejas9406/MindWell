@@ -7,6 +7,8 @@ import AssessmentTab from '../components/AssessmentTab';
 import DreamInterpreter from '../components/DreamInterpreter';
 import GoalChallengeTab from '../components/GoalChallengeTab';
 import PanicButton from '../components/PanicButton';
+import CBTDiaryTab from '../components/CBTDiaryTab';
+import PMRVisualizerTab from '../components/PMRVisualizerTab';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { auth } from '../firebase';
@@ -36,6 +38,9 @@ const Dashboard = () => {
     const insightsRef = useRef(null);
     const mainRef = useRef(null);
     const [showScrollTop, setShowScrollTop] = useState(false);
+    const [showCrisisModal, setShowCrisisModal] = useState(false);
+    const [isRecording, setIsRecording] = useState(false);
+    const [vocalAnalysis, setVocalAnalysis] = useState(null);
 
     const smoothScrollTo = (element, target, duration) => {
         const start = element.scrollTop;
@@ -110,6 +115,9 @@ const Dashboard = () => {
 
             const data = await res.json();
             if (!res.ok) {
+                if (res.status === 500) {
+                    throw new Error('Database connection timed out. Please check your MongoDB Atlas IP whitelist.');
+                }
                 throw new Error(data.error || 'Unable to load user data');
             }
 
@@ -117,7 +125,14 @@ const Dashboard = () => {
             await fetchChatHistory(email, data);
         } catch (error) {
             console.error('Error loading user data:', error);
-            setUserData(null);
+            if (error.message.includes('Database connection timed out') || error.message.includes('MongoDB')) {
+                setUserData({ 
+                    error: true, 
+                    message: "Cannot connect to the database. If you are using MongoDB Atlas, make sure your current IP address is whitelisted in the Network Access settings." 
+                });
+            } else {
+                setUserData(null);
+            }
         } finally {
             setLoading(false);
         }
@@ -202,19 +217,45 @@ const Dashboard = () => {
         event.preventDefault();
         if (!inputText.trim()) return;
 
-        const newMessage = { id: Date.now(), text: inputText, sender: 'user' };
+        const newMessage = { 
+            id: Date.now(), 
+            text: inputText, 
+            sender: 'user',
+            vocalAnalysis: vocalAnalysis 
+        };
         setMessages((prev) => [...prev, newMessage]);
+        
         const currentInput = inputText;
+        const currentAnalysis = vocalAnalysis;
+        
         setInputText('');
+        setVocalAnalysis(null);
+
+        const crisisKeywords = ['suicide', 'kill myself', 'kill me', 'want to die', 'end it', 'self harm', 'self-harm', 'no reason to live', 'i want to die', 'can\'t do this anymore'];
+        if (crisisKeywords.some(kw => currentInput.toLowerCase().includes(kw))) {
+            setShowCrisisModal(true);
+            setMessages(prev => [...prev, {
+                id: Date.now() + 1,
+                text: "I'm detecting that you might be in immediate distress. Please, let's get you connected with real human support right away.",
+                sender: 'ai'
+            }]);
+            return; // Stop AI from generating a standard response
+        }
 
         try {
+            // Append the vocal biomarker context so the AI knows how the user "sounded"
+            let finalMessagePayload = currentInput;
+            if (currentAnalysis) {
+                finalMessagePayload += `\n\n[System Note - Vocal Biomarker Analysis: The user's voice sounded ${currentAnalysis.toLowerCase()}. Please be extra empathetic.]`;
+            }
+
             const res = await fetch(`${API_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    message: currentInput,
+                    message: finalMessagePayload,
                     email: userEmail
                 }),
             });
@@ -274,17 +315,27 @@ const Dashboard = () => {
         recognition.lang = 'en-US';
 
         recognition.onstart = () => {
-            // Optional: Add visual feedback for recording
-            setInputText('Listening...');
+            setIsRecording(true);
+            setInputText('Listening... Speak now.');
         };
 
         recognition.onresult = (event) => {
+            setIsRecording(false);
             const transcript = event.results[0][0].transcript;
-            setInputText(transcript);
+            
+            // Mock Vocal Biomarker Analysis
+            setInputText('Analyzing Vocal Biomarkers...');
+            setTimeout(() => {
+                const isNegative = ['sad', 'bad', 'stress', 'tired', 'exhausted', 'kill', 'die'].some(w => transcript.toLowerCase().includes(w));
+                const mockAnalysis = isNegative ? 'High Stress / Fatigue Tone Detected' : 'Neutral / Calm Tone Detected';
+                setVocalAnalysis(mockAnalysis);
+                setInputText(transcript);
+            }, 1500);
         };
 
         recognition.onerror = (event) => {
             console.error('Speech recognition error', event.error);
+            setIsRecording(false);
             setInputText('');
         };
 
@@ -293,6 +344,27 @@ const Dashboard = () => {
 
     if (loading) {
         return <div className="min-h-screen flex items-center justify-center text-white"><ThreeBackground />Loading...</div>;
+    }
+
+    if (userData && userData.error) {
+        return (
+            <div className="min-h-screen relative text-white font-sans overflow-hidden flex items-center justify-center p-6">
+                <ThreeBackground />
+                <div className="relative z-10 max-w-lg bg-red-500/10 border border-red-500/30 p-8 rounded-3xl backdrop-blur-xl text-center shadow-2xl">
+                    <svg className="w-16 h-16 text-red-400 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <h2 className="text-2xl font-bold text-red-300 mb-4">Database Connection Error</h2>
+                    <p className="text-red-200/80 mb-6">{userData.message}</p>
+                    <button 
+                        onClick={() => window.location.reload()} 
+                        className="bg-red-500 hover:bg-red-600 text-white px-6 py-2 rounded-xl transition-colors"
+                    >
+                        Retry Connection
+                    </button>
+                </div>
+            </div>
+        );
     }
 
     if (!userData) {
@@ -338,6 +410,12 @@ const Dashboard = () => {
                     <button onClick={() => setActiveTab('goal-challenge')} className={`w-full text-left px-4 py-3 rounded-xl transition-all ${activeTab === 'goal-challenge' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/30' : 'hover:bg-white/10 text-gray-400'}`}>
                         Weekly Task
                     </button>
+                    <button onClick={() => setActiveTab('cbt-diary')} className={`w-full text-left px-4 py-3 rounded-xl transition-all ${activeTab === 'cbt-diary' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/30' : 'hover:bg-white/10 text-gray-400'}`}>
+                        CBT Thought Diary
+                    </button>
+                    <button onClick={() => setActiveTab('pmr')} className={`w-full text-left px-4 py-3 rounded-xl transition-all ${activeTab === 'pmr' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/30' : 'hover:bg-white/10 text-gray-400'}`}>
+                        Muscle Relaxation
+                    </button>
                     <button onClick={() => setActiveTab('articles')} className={`w-full text-left px-4 py-3 rounded-xl transition-all ${activeTab === 'articles' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/30' : 'hover:bg-white/10 text-gray-400'}`}>
                         Related Articles
                     </button>
@@ -352,6 +430,8 @@ const Dashboard = () => {
                         ['dreams', 'Dream Interpreter'],
                         ['music', 'Relaxation Music'],
                         ['goal-challenge', 'Weekly Task'],
+                        ['cbt-diary', 'CBT Thought Diary'],
+                        ['pmr', 'Muscle Relaxation'],
                         ['articles', 'Related Articles'],
                     ].map(([key, label]) => (
                         <button
@@ -517,6 +597,10 @@ const Dashboard = () => {
                         </div>
                     ) : activeTab === 'goal-challenge' ? (
                         <GoalChallengeTab userData={userData} />
+                    ) : activeTab === 'cbt-diary' ? (
+                        <CBTDiaryTab userEmail={userEmail} />
+                    ) : activeTab === 'pmr' ? (
+                        <PMRVisualizerTab />
                     ) : activeTab === 'dreams' ? (
                         <DreamInterpreter userEmail={userEmail} />
                     ) : activeTab === 'chat' ? (
@@ -527,10 +611,18 @@ const Dashboard = () => {
 
                             <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-700">
                                 {messages.map((msg) => (
-                                    <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
                                         <div className={`max-w-[70%] p-4 rounded-2xl ${msg.sender === 'user' ? 'bg-purple-600 text-white rounded-br-none' : 'bg-white/10 text-gray-200 rounded-bl-none border border-white/10'}`}>
                                             {msg.text}
                                         </div>
+                                        {msg.vocalAnalysis && (
+                                            <div className="mt-1 flex items-center gap-1 text-[10px] uppercase tracking-wider text-purple-300/80 bg-purple-900/30 px-2 py-1 rounded-full border border-purple-500/20">
+                                                <svg className="w-3 h-3 animate-pulse text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                                                </svg>
+                                                Vocal Marker: {msg.vocalAnalysis}
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -540,7 +632,7 @@ const Dashboard = () => {
                                     type="button"
                                     onClick={handleVoiceInput}
                                     title="Voice Input"
-                                    className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors flex-shrink-0"
+                                    className={`p-3 rounded-full transition-colors flex-shrink-0 ${isRecording ? 'bg-red-500 animate-pulse text-white shadow-[0_0_15px_rgba(239,68,68,0.5)]' : 'bg-white/10 hover:bg-white/20 text-white'}`}
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
@@ -553,8 +645,9 @@ const Dashboard = () => {
                                     type="text"
                                     value={inputText}
                                     onChange={(e) => setInputText(e.target.value)}
-                                    className="flex-1 bg-black/20 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-1 focus:ring-purple-500 text-white placeholder-gray-500"
-                                    placeholder="Type or speak your message..."
+                                    disabled={isRecording || inputText === 'Analyzing Vocal Biomarkers...'}
+                                    className="flex-1 bg-black/20 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-1 focus:ring-purple-500 text-white placeholder-gray-500 disabled:opacity-50"
+                                    placeholder={isRecording ? "Listening..." : "Type or speak your message..."}
                                     autoComplete="off"
                                 />
                                 <button type="submit" className="bg-purple-600 hover:bg-purple-700 px-6 py-3 rounded-xl font-medium transition-colors">
@@ -585,6 +678,33 @@ const Dashboard = () => {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
                         </svg>
                     </button>
+                )}
+
+                {showCrisisModal && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4">
+                        <div className="bg-red-900/90 border border-red-500/50 rounded-3xl max-w-lg w-full p-8 text-center shadow-[0_0_50px_rgba(239,68,68,0.5)]">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto text-red-400 mb-4 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <h2 className="text-3xl font-bold text-white mb-2">You are not alone.</h2>
+                            <p className="text-red-200 mb-8 text-lg">
+                                We are here for you, but an AI cannot provide the critical care you deserve right now. Please reach out to someone who can help immediately.
+                            </p>
+                            
+                            <div className="space-y-4 mb-8">
+                                <a href="tel:988" className="block w-full bg-white text-red-900 font-bold py-4 rounded-xl text-xl hover:bg-gray-100 transition-colors">
+                                    Call 988 (Suicide & Crisis Lifeline)
+                                </a>
+                                <a href="sms:741741" className="block w-full bg-red-800 text-white font-bold py-4 rounded-xl text-xl hover:bg-red-700 transition-colors border border-red-500">
+                                    Text HOME to 741741
+                                </a>
+                            </div>
+
+                            <button onClick={() => setShowCrisisModal(false)} className="text-red-300/50 hover:text-red-300 text-sm transition-colors">
+                                I am safe. Return to Dashboard.
+                            </button>
+                        </div>
+                    </div>
                 )}
             </main>
         </div>
