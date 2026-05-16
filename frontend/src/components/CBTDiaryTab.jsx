@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { API_BASE_URL } from '../lib/api';
+import { API_BASE_URL, authenticatedFetch } from '../lib/api';
+import TypingEffect from './TypingEffect';
 
 const CBTDiaryTab = ({ userEmail }) => {
     const [step, setStep] = useState(1);
@@ -17,7 +18,7 @@ const CBTDiaryTab = ({ userEmail }) => {
             const prompt = `Act as an expert Cognitive Behavioral Therapist (CBT). The user had this negative thought: "${thought}", in this situation: "${situation}". They are feeling ${emotion} with an intensity of ${intensity}/100. 
             Identify the cognitive distortion (e.g., catastrophizing, black-and-white thinking) and provide a healthier, more balanced reframed thought. Keep it extremely empathetic, practical, and under 4 sentences.`;
 
-            const res = await fetch(`${API_BASE_URL}/api/chat`, {
+            const res = await authenticatedFetch(`${API_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: prompt }),
@@ -140,7 +141,7 @@ const CBTDiaryTab = ({ userEmail }) => {
                             <motion.div key="step4" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6">
                                 <div className="bg-purple-900/20 border border-purple-500/30 rounded-2xl p-6">
                                     <h3 className="text-xl font-bold text-purple-300 mb-4">Therapist's Reframe</h3>
-                                    <p className="text-white text-lg leading-relaxed whitespace-pre-wrap">{aiReframe}</p>
+                                    <p className="text-white text-lg leading-relaxed whitespace-pre-wrap"><TypingEffect text={aiReframe} speed={30} /></p>
                                 </div>
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

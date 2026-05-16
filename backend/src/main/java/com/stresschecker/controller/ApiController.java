@@ -3,7 +3,7 @@ package com.stresschecker.controller;
 import com.stresschecker.model.*;
 import com.stresschecker.repository.UserDataRepository;
 import com.stresschecker.repository.ChatHistoryRepository;
-import com.stresschecker.service.GeminiChatService;
+import com.stresschecker.service.GroqChatService;
 import com.stresschecker.service.SheetsSyncService;
 import com.stresschecker.service.FreesoundService;
 import com.stresschecker.service.WellnessEngineService;
@@ -16,6 +16,8 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.util.*;
 
@@ -24,22 +26,37 @@ public class ApiController {
 
     private final FreesoundService freesoundService;
     private final SheetsSyncService sheetsSyncService;
-    private final GeminiChatService geminiChatService;
+    private final GroqChatService groqChatService;
     private final UserDataRepository userDataRepository;
     private final ChatHistoryRepository chatHistoryRepository;
     private final WellnessEngineService wellnessEngineService;
 
     private static final int MAX_HISTORY_TURNS = 20;
 
-    public ApiController(SheetsSyncService sheetsSyncService, GeminiChatService geminiChatService,
+    public ApiController(SheetsSyncService sheetsSyncService, GroqChatService groqChatService,
             UserDataRepository userDataRepository, FreesoundService freesoundService,
             ChatHistoryRepository chatHistoryRepository, WellnessEngineService wellnessEngineService) {
         this.sheetsSyncService = sheetsSyncService;
-        this.geminiChatService = geminiChatService;
+        this.groqChatService = groqChatService;
         this.userDataRepository = userDataRepository;
         this.freesoundService = freesoundService;
         this.chatHistoryRepository = chatHistoryRepository;
         this.wellnessEngineService = wellnessEngineService;
+    }
+
+    private String getAuthenticatedEmail() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof Jwt) {
+            Jwt jwt = (Jwt) auth.getPrincipal();
+            return jwt.getClaimAsString("email");
+        }
+        return null;
+    }
+
+    private boolean isAuthorized(String requestedEmail) {
+        String authEmail = getAuthenticatedEmail();
+        if (authEmail == null || requestedEmail == null) return false;
+        return authEmail.equalsIgnoreCase(requestedEmail.trim());
     }
 
     @GetMapping("/")
@@ -85,6 +102,9 @@ public class ApiController {
         if (email == null || email.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
         }
+        if (!isAuthorized(email)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Unauthorized action"));
+        }
 
         try {
             Optional<UserData> existing = userDataRepository.findById(email.toLowerCase().trim());
@@ -101,6 +121,9 @@ public class ApiController {
     public ResponseEntity<?> updateWeeklyTask(@RequestBody WeeklyTaskUpdateRequest request) {
         if (request.getEmail() == null || request.getEmail().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
+        }
+        if (!isAuthorized(request.getEmail())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Unauthorized action"));
         }
         if (request.getTaskId() == null || request.getTaskId().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Task id is required"));
@@ -129,6 +152,9 @@ public class ApiController {
         if (request.getEmail() == null || request.getEmail().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
         }
+        if (!isAuthorized(request.getEmail())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Unauthorized action"));
+        }
 
         try {
             Optional<UserData> userOpt = userDataRepository.findById(request.getEmail().toLowerCase().trim());
@@ -149,6 +175,9 @@ public class ApiController {
     public ResponseEntity<?> addWeeklyCheckIn(@RequestBody WeeklyCheckInRequest request) {
         if (request.getEmail() == null || request.getEmail().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
+        }
+        if (!isAuthorized(request.getEmail())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Unauthorized action"));
         }
 
         try {
@@ -171,13 +200,16 @@ public class ApiController {
     }
 
     @PostMapping("/api/chat")
-    public ResponseEntity<?> chat(@RequestBody ChatRequest request) {
+    public ResponseEntity<ChatResponse> chat(@RequestBody ChatRequest request) {
         String userMessage = request.getMessage();
         String userEmailRaw = request.getEmail();
         String userEmail = (userEmailRaw != null && !userEmailRaw.isBlank()) ? userEmailRaw.toLowerCase().trim() : null;
 
         if (userMessage == null || userMessage.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Message is required"));
+            return ResponseEntity.badRequest().build();
+        }
+        if (userEmail != null && !isAuthorized(userEmail)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
         Map<String, Object> stressContext = new HashMap<>();
@@ -215,12 +247,20 @@ public class ApiController {
             }
         }
 
-        String response = geminiChatService.getAiResponse(userMessage, stressContext, history);
+        String aiResponse = groqChatService.getAiResponse(userMessage, stressContext, history);
 
         if (userEmail != null && !userEmail.isBlank() && chatHistory != null) {
             try {
-                history.add(Map.of("role", "user", "text", userMessage));
-                history.add(Map.of("role", "model", "text", response));
+                Map<String, String> userTurn = new HashMap<>();
+                userTurn.put("role", "user");
+                userTurn.put("text", userMessage);
+                history.add(userTurn);
+
+                Map<String, String> aiTurn = new HashMap<>();
+                aiTurn.put("role", "model");
+                aiTurn.put("text", aiResponse);
+                history.add(aiTurn);
+
                 while (history.size() > MAX_HISTORY_TURNS) {
                     history.remove(0);
                 }
@@ -232,10 +272,8 @@ public class ApiController {
             }
         }
 
-        return ResponseEntity.ok(new ChatResponse(response));
+        return ResponseEntity.ok(new ChatResponse(aiResponse));
     }
-
-
 
     @GetMapping(value = "/api/dream-image", produces = MediaType.IMAGE_JPEG_VALUE)
     public ResponseEntity<byte[]> generateDreamImage(@RequestParam String prompt) {
@@ -245,8 +283,9 @@ public class ApiController {
 
         try {
             String encodedPrompt = java.net.URLEncoder.encode(
-                "surreal cinematic dream visualization of " + prompt, java.nio.charset.StandardCharsets.UTF_8);
-            String url = "https://image.pollinations.ai/prompt/" + encodedPrompt + "?width=768&height=512&nologo=true&seed=" + System.currentTimeMillis();
+                    "surreal cinematic dream visualization of " + prompt, java.nio.charset.StandardCharsets.UTF_8);
+            String url = "https://image.pollinations.ai/prompt/" + encodedPrompt
+                    + "?width=768&height=512&nologo=true&seed=" + System.currentTimeMillis();
 
             RestTemplate restTemplate = new RestTemplate();
             ResponseEntity<byte[]> response = restTemplate.getForEntity(url, byte[].class);
@@ -281,13 +320,22 @@ public class ApiController {
     }
 
     @GetMapping("/api/articles")
-    public List<ArticleItem> getArticles(@RequestParam(required = false) String email,
-            @RequestParam(required = false) String profileType) {
+    public ResponseEntity<?> getArticles(@RequestParam(required = false) String email,
+            @RequestParam(required = false) String profileType,
+            @RequestParam(required = false) String search) {
+
+        if (search != null && !search.isBlank()) {
+            List<Map<String, Object>> results = groqChatService.searchArticles(search,
+                    profileType != null ? profileType : "general");
+            return ResponseEntity.ok(results);
+        }
+
         UserData user = null;
         if (email != null && !email.isBlank()) {
             user = userDataRepository.findById(email.toLowerCase().trim()).orElse(null);
         }
-        return wellnessEngineService.getRecommendedArticles(user, profileType);
+        List<ArticleItem> recommended = wellnessEngineService.getRecommendedArticles(user, profileType);
+        return ResponseEntity.ok(recommended);
     }
 
     @PostMapping("/api/insights")
@@ -295,6 +343,9 @@ public class ApiController {
         String email = request.get("email");
         if (email == null || email.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
+        }
+        if (!isAuthorized(email)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Unauthorized action"));
         }
 
         try {
@@ -311,7 +362,7 @@ public class ApiController {
                         .body(Map.of("error", "No detailed responses found. Please ensure data is synced."));
             }
 
-            List<Map<String, Object>> insights = geminiChatService.generateInsights(detailedResponses);
+            List<Map<String, Object>> insights = groqChatService.generateInsights(detailedResponses);
             return ResponseEntity.ok(insights);
 
         } catch (Exception e) {
@@ -324,6 +375,9 @@ public class ApiController {
     public ResponseEntity<?> getUserData(@RequestParam String email) {
         if (email == null || email.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
+        }
+        if (!isAuthorized(email)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Unauthorized to access this data"));
         }
         try {
             Optional<UserData> userOpt = userDataRepository.findById(email.toLowerCase().trim());
@@ -342,6 +396,9 @@ public class ApiController {
     public ResponseEntity<?> getChatHistory(@RequestParam String email) {
         if (email == null || email.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
+        }
+        if (!isAuthorized(email)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Unauthorized to access this data"));
         }
         try {
             Optional<ChatHistory> histOpt = chatHistoryRepository.findById(email.toLowerCase().trim());

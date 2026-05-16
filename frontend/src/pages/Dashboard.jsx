@@ -9,11 +9,12 @@ import GoalChallengeTab from '../components/GoalChallengeTab';
 import PanicButton from '../components/PanicButton';
 import CBTDiaryTab from '../components/CBTDiaryTab';
 import PMRVisualizerTab from '../components/PMRVisualizerTab';
+import TypingEffect from '../components/TypingEffect';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { auth } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { API_BASE_URL } from '../lib/api';
+import { API_BASE_URL, authenticatedFetch } from '../lib/api';
 
 ChartJS.register(
     CategoryScale,
@@ -103,12 +104,12 @@ const Dashboard = () => {
     const fetchUserData = async (email) => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_BASE_URL}/api/user-data?email=${encodeURIComponent(email)}`);
+            const res = await authenticatedFetch(`${API_BASE_URL}/api/user-data?email=${encodeURIComponent(email)}`);
             if (res.status === 404) {
                 setUserData(null);
                 setActiveTab('overview');
                 setMessages([
-                    { id: 1, text: "Let's complete your first assessment so I can personalize everything for you.", sender: 'ai' }
+                    { id: 1, text: "Let's complete your first assessment so I can personalize everything for you.", sender: 'ai', isAnimate: true }
                 ]);
                 return;
             }
@@ -140,7 +141,7 @@ const Dashboard = () => {
 
     const fetchChatHistory = async (email, data) => {
         try {
-            const res = await fetch(`${API_BASE_URL}/api/chat-history?email=${encodeURIComponent(email)}`);
+            const res = await authenticatedFetch(`${API_BASE_URL}/api/chat-history?email=${encodeURIComponent(email)}`);
             const history = await res.json();
 
             if (res.ok && Array.isArray(history.messages) && history.messages.length > 0) {
@@ -155,6 +156,7 @@ const Dashboard = () => {
                         id: 1,
                         text: `Hello! I'm your AI Mental Health Assistant. I can use your ${formatProfileType(data?.profile_type)} assessment context whenever you're ready.`,
                         sender: 'ai',
+                        isAnimate: true
                     }
                 ]);
             }
@@ -205,6 +207,7 @@ const Dashboard = () => {
                 id: 1,
                 text: `Your first assessment is ready. I can now help using your ${formatProfileType(data?.profile_type)} context.`,
                 sender: 'ai',
+                isAnimate: true
             }
         ]);
     };
@@ -249,7 +252,7 @@ const Dashboard = () => {
                 finalMessagePayload += `\n\n[System Note - Vocal Biomarker Analysis: The user's voice sounded ${currentAnalysis.toLowerCase()}. Please be extra empathetic.]`;
             }
 
-            const res = await fetch(`${API_BASE_URL}/api/chat`, {
+            const res = await authenticatedFetch(`${API_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -265,7 +268,8 @@ const Dashboard = () => {
             setMessages(prev => [...prev, {
                 id: Date.now() + 1,
                 text: data.response || 'I am having trouble connecting right now.',
-                sender: 'ai'
+                sender: 'ai',
+                isAnimate: true
             }]);
 
         } catch (err) {
@@ -273,7 +277,8 @@ const Dashboard = () => {
             setMessages(prev => [...prev, {
                 id: Date.now() + 1,
                 text: 'Error connecting to AI server. Please make sure the backend is running.',
-                sender: 'ai'
+                sender: 'ai',
+                isAnimate: true
             }]);
         }
     };
@@ -282,7 +287,7 @@ const Dashboard = () => {
         if (!userData || !userEmail) return;
         setLoadingInsights(true);
         try {
-            const res = await fetch(`${API_BASE_URL}/api/insights`, {
+            const res = await authenticatedFetch(`${API_BASE_URL}/api/insights`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: userEmail })
@@ -422,8 +427,8 @@ const Dashboard = () => {
                 </nav>
             </aside>
 
-            <main ref={mainRef} className="flex-1 p-8 z-10 overflow-y-auto scroll-smooth" onScroll={handleScroll}>
-                <div className="mb-6 flex gap-3 overflow-x-auto md:hidden">
+            <main ref={mainRef} className="flex-1 p-4 md:p-8 z-10 overflow-y-auto scroll-smooth" onScroll={handleScroll}>
+                <div className="mb-6 flex gap-3 overflow-x-auto md:hidden pb-2 [&::-webkit-scrollbar]:hidden">
                     {[
                         ['overview', 'Overview'],
                         ['chat', 'AI Assistant'],
@@ -604,7 +609,7 @@ const Dashboard = () => {
                     ) : activeTab === 'dreams' ? (
                         <DreamInterpreter userEmail={userEmail} />
                     ) : activeTab === 'chat' ? (
-                        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl h-[80vh] flex flex-col overflow-hidden">
+                        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl h-[70vh] md:h-[80vh] flex flex-col overflow-hidden">
                             <div className="p-4 border-b border-white/10 bg-white/5">
                                 <h3 className="font-semibold text-purple-300">Dr. Gemini (AI Support)</h3>
                             </div>
@@ -613,7 +618,7 @@ const Dashboard = () => {
                                 {messages.map((msg) => (
                                     <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
                                         <div className={`max-w-[70%] p-4 rounded-2xl ${msg.sender === 'user' ? 'bg-purple-600 text-white rounded-br-none' : 'bg-white/10 text-gray-200 rounded-bl-none border border-white/10'}`}>
-                                            {msg.text}
+                                            {msg.sender === 'ai' ? <TypingEffect text={msg.text} isAnimate={msg.isAnimate} /> : msg.text}
                                         </div>
                                         {msg.vocalAnalysis && (
                                             <div className="mt-1 flex items-center gap-1 text-[10px] uppercase tracking-wider text-purple-300/80 bg-purple-900/30 px-2 py-1 rounded-full border border-purple-500/20">

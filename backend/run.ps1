@@ -49,10 +49,12 @@ if (Test-Path ".env") {
             [Environment]::SetEnvironmentVariable($name, $value, 'Process')
         }
     }
-    if ($env:GEMINI_API_KEY) {
+    if ($env:GROQ_API_KEY) {
+        Write-Host "GROQ_API_KEY loaded: $($env:GROQ_API_KEY.Substring(0, 5))..." -ForegroundColor Green
+    } elseif ($env:GEMINI_API_KEY) {
         Write-Host "GEMINI_API_KEY loaded: $($env:GEMINI_API_KEY.Substring(0, 5))..." -ForegroundColor Green
     } else {
-        Write-Host "GEMINI_API_KEY NOT loaded." -ForegroundColor Red
+        Write-Host "No AI API key loaded from .env." -ForegroundColor Red
     }
 }
 

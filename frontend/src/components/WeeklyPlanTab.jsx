@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import ChallengeBoard from './ChallengeBoard';
-import { API_BASE_URL } from '../lib/api';
+import { API_BASE_URL, authenticatedFetch } from '../lib/api';
 
 const moodOptions = [
     { value: 'heavy', label: 'Heavy' },
@@ -43,7 +43,7 @@ const WeeklyPlanTab = ({ userData, userEmail, onUserDataChange }) => {
         setFeedback('');
 
         try {
-            const res = await fetch(`${API_BASE_URL}/api/weekly-plan/task`, {
+            const res = await authenticatedFetch(`${API_BASE_URL}/api/weekly-plan/task`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -77,7 +77,7 @@ const WeeklyPlanTab = ({ userData, userEmail, onUserDataChange }) => {
         setFeedback('');
 
         try {
-            const res = await fetch(`${API_BASE_URL}/api/weekly-plan/regenerate`, {
+            const res = await authenticatedFetch(`${API_BASE_URL}/api/weekly-plan/regenerate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: userEmail }),
@@ -108,7 +108,7 @@ const WeeklyPlanTab = ({ userData, userEmail, onUserDataChange }) => {
         setFeedback('');
 
         try {
-            const res = await fetch(`${API_BASE_URL}/api/weekly-plan/check-in`, {
+            const res = await authenticatedFetch(`${API_BASE_URL}/api/weekly-plan/check-in`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

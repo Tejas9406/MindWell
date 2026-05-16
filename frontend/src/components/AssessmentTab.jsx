@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { API_BASE_URL } from '../lib/api';
+import { API_BASE_URL, authenticatedFetch } from '../lib/api';
 
 const supportOptions = [
     { value: 'gentle', label: 'Gentle Guide', detail: 'Softer language and calming next steps.' },
@@ -54,7 +54,7 @@ const AssessmentTab = ({ userEmail, currentProfileType, onComplete }) => {
         const loadProfiles = async () => {
             setLoadingProfiles(true);
             try {
-                const res = await fetch(`${API_BASE_URL}/api/assessment/profiles`);
+                const res = await authenticatedFetch(`${API_BASE_URL}/api/assessment/profiles`);
                 const data = await res.json();
                 if (!ignore) {
                     setProfiles(data);
@@ -91,7 +91,7 @@ const AssessmentTab = ({ userEmail, currentProfileType, onComplete }) => {
             setError('');
             try {
                 const params = new URLSearchParams({ profileType: selectedProfile });
-                const res = await fetch(`${API_BASE_URL}/api/assessment/template?${params.toString()}`);
+                const res = await authenticatedFetch(`${API_BASE_URL}/api/assessment/template?${params.toString()}`);
                 const data = await res.json();
                 if (!ignore) {
                     setTemplate(data);
@@ -144,7 +144,7 @@ const AssessmentTab = ({ userEmail, currentProfileType, onComplete }) => {
                 })),
             };
 
-            const res = await fetch(`${API_BASE_URL}/api/assessment/submit`, {
+            const res = await authenticatedFetch(`${API_BASE_URL}/api/assessment/submit`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),

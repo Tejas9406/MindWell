@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { API_BASE_URL } from '../lib/api';
+import { API_BASE_URL, authenticatedFetch } from '../lib/api';
 
 const ArticlesTab = ({ email, profileType }) => {
     const [articles, setArticles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [viewMode, setViewMode] = useState('read'); // 'read' or 'video'
+    const [searchQuery, setSearchQuery] = useState('');
 
     const getVideos = () => {
         const profile = profileType ? profileType.toLowerCase() : 'student';
@@ -30,31 +31,45 @@ const ArticlesTab = ({ email, profileType }) => {
     };
 
     useEffect(() => {
-        const params = new URLSearchParams();
-        if (email) {
-            params.set('email', email);
-        }
-        if (profileType) {
-            params.set('profileType', profileType);
-        }
+        const fetchArticles = async () => {
+            setLoading(true);
+            const params = new URLSearchParams();
+            if (email) params.set('email', email);
+            if (profileType) params.set('profileType', profileType);
+            if (searchQuery.trim().length > 2) {
+                params.set('search', searchQuery.trim());
+            }
 
-        fetch(`${API_BASE_URL}/api/articles?${params.toString()}`)
-            .then(res => res.json())
-            .then(data => {
+            try {
+                const res = await authenticatedFetch(`${API_BASE_URL}/api/articles?${params.toString()}`);
+                const data = await res.json();
                 setArticles(data);
-                setLoading(false);
-            })
-            .catch(err => {
+            } catch (err) {
                 console.error("Error fetching articles:", err);
+            } finally {
                 setLoading(false);
-            });
-    }, [email, profileType]);
+            }
+        };
+
+        const timeoutId = setTimeout(() => {
+            fetchArticles();
+        }, 500);
+
+        return () => clearTimeout(timeoutId);
+    }, [email, profileType, searchQuery]);
+
+    const filteredArticles = articles; // Now filtered by the backend if search is active
+
+    const filteredVideos = getVideos().filter(v => 
+        v.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        v.source.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
     if (loading) return <div className="text-white text-center mt-10 font-serif">Curating your personalized stories...</div>;
 
     return (
         <div className="space-y-6 p-4">
-            <div className="flex justify-center mb-8">
+            <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
                 <div className="bg-white/10 p-1 rounded-full flex gap-2 backdrop-blur-md border border-white/20 shadow-lg">
                     <button
                         onClick={() => setViewMode('read')}
@@ -71,11 +86,24 @@ const ArticlesTab = ({ email, profileType }) => {
                         Watch Video
                     </button>
                 </div>
+                
+                <div className="relative w-full md:w-72">
+                    <input 
+                        type="text" 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder={`Search ${viewMode === 'read' ? 'articles' : 'videos'}...`}
+                        className="w-full bg-white/5 border border-white/10 rounded-full py-2 pl-10 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
+                    />
+                    <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                </div>
             </div>
 
             {viewMode === 'read' ? (
                 <div className="grid gap-8">
-                    {articles.map((article, index) => (
+                    {filteredArticles.length > 0 ? filteredArticles.map((article, index) => (
                         <motion.article
                             key={article.id}
                             initial={{ opacity: 0, y: 20 }}
@@ -114,11 +142,13 @@ const ArticlesTab = ({ email, profileType }) => {
                                 </svg>
                             </a>
                         </motion.article>
-                    ))}
+                    )) : (
+                        <div className="text-center text-gray-400 py-10">No stories found matching your search.</div>
+                    )}
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {getVideos().map((video, index) => (
+                    {filteredVideos.length > 0 ? filteredVideos.map((video, index) => (
                         <motion.div
                             key={video.id}
                             initial={{ opacity: 0, scale: 0.95 }}
@@ -142,7 +172,9 @@ const ArticlesTab = ({ email, profileType }) => {
                                 ></iframe>
                             </div>
                         </motion.div>
-                    ))}
+                    )) : (
+                        <div className="col-span-2 text-center text-gray-400 py-10">No videos found matching your search.</div>
+                    )}
                 </div>
             )}
         </div>
@@ -150,3 +182,4 @@ const ArticlesTab = ({ email, profileType }) => {
 };
 
 export default ArticlesTab;
+

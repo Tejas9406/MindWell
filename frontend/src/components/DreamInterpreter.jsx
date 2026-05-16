@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { API_BASE_URL } from '../lib/api';
+import { API_BASE_URL, authenticatedFetch } from '../lib/api';
+import TypingEffect from './TypingEffect';
 
 const DreamInterpreter = ({ userEmail }) => {
     const [dreamText, setDreamText] = useState('');
@@ -14,7 +15,7 @@ const DreamInterpreter = ({ userEmail }) => {
         setLoadingImage(true);
         try {
             const encodedPrompt = encodeURIComponent(prompt);
-            const response = await fetch(`${API_BASE_URL}/api/dream-image?prompt=${encodedPrompt}`, {
+            const response = await authenticatedFetch(`${API_BASE_URL}/api/dream-image?prompt=${encodedPrompt}`, {
                 method: "GET",
             });
             if (!response.ok) throw new Error("Image generation failed");
@@ -40,7 +41,7 @@ const DreamInterpreter = ({ userEmail }) => {
         try {
             const prompt = `Act as an expert Jungian psychoanalyst. Interpret the following dream and explain what underlying real-life stressors or subconscious thoughts might be causing it. Keep your explanation very simple, easy to understand, and empathetic. Do not use high-level or complicated English words. Dream: "${dreamText}"`;
             
-            const res = await fetch(`${API_BASE_URL}/api/chat`, {
+            const res = await authenticatedFetch(`${API_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -165,7 +166,7 @@ const DreamInterpreter = ({ userEmail }) => {
                                 </div>
                             ) : interpretation ? (
                                 <div className="prose prose-invert max-w-none text-gray-200">
-                                    <p className="whitespace-pre-wrap leading-relaxed">{interpretation}</p>
+                                    <p className="whitespace-pre-wrap leading-relaxed"><TypingEffect text={interpretation} /></p>
                                 </div>
                             ) : (
                                 <div className="flex items-center justify-center h-full text-gray-500 italic text-center">

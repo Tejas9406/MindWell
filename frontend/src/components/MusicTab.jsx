@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { API_BASE_URL } from '../lib/api';
+import { API_BASE_URL, authenticatedFetch } from '../lib/api';
 
 const MusicTab = ({ stressLevel }) => {
     const [musicList, setMusicList] = useState([]);
@@ -23,7 +23,7 @@ const MusicTab = ({ stressLevel }) => {
         setLoading(true);
         try {
             const query = new URLSearchParams(params).toString();
-            const res = await fetch(`${API_BASE_URL}/api/music?${query}`);
+            const res = await authenticatedFetch(`${API_BASE_URL}/api/music?${query}`);
             if (!res.ok) throw new Error('Failed to fetch music');
             const data = await res.json();
             setMusicList(data);
